@@ -24,12 +24,6 @@ public:
 private:
     std::string name_;
 };
-struct DisplayFonts {
-    const lv_font_t* text_font = nullptr;
-    const lv_font_t* icon_font = nullptr;
-    const lv_font_t* emoji_font = nullptr;
-};
-
 
 class Display {
 public:
@@ -47,18 +41,30 @@ public:
     virtual void UpdateStatusBar(bool update_all = false);
     virtual void SetPowerSaveMode(bool on);
 
+    // For FFT display
+    virtual void StartFFT() {}
+    virtual void StopFFT() {}
+    virtual void ReedAudioDataFFT(int16_t* data, size_t sample_count) {};
+    virtual int16_t* MakeAudioBuffFFT(size_t sample_count) { return nullptr; };
+    virtual void ReleaseAudioBuffFFT(int16_t* buffer = nullptr) {};
+
+    // For QR code display
+    virtual void ClearQRCode() {}
+    virtual void DisplayQRCode(const uint8_t* qrcode, const char* text = nullptr) {}
+    virtual void SetIpAddress(const std::string& ip_address) {}
+
+    // For rotation display
+    virtual bool SetRotation(int rotation_degree, bool save_setting) { return false; }
+
     inline int width() const { return width_; }
     inline int height() const { return height_; }
-    virtual void clearScreen() {}  // 清除FFT显示，默认为空实现
-    virtual void stopFft() {}      // 停止FFT显示，默认为空实现
-    virtual void start() {}
+
 protected:
     int width_ = 0;
     int height_ = 0;
 
     Theme* current_theme_ = nullptr;
-    lv_obj_t* chat_message_label_ = nullptr;
-    lv_obj_t *emotion_label_ = nullptr;
+
     friend class DisplayLockGuard;
     virtual bool Lock(int timeout_ms = 0) = 0;
     virtual void Unlock() = 0;

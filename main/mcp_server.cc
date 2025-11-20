@@ -17,8 +17,8 @@
 #include "settings.h"
 #include "lvgl_theme.h"
 #include "lvgl_display.h"
-#include "boards/common/music_service.h"
-
+#include "music_service.h"
+#include "esp32_radio.h"
 #define TAG "MCP"
 
 McpServer::McpServer() {
@@ -164,13 +164,13 @@ void McpServer::AddCommonTools() {
                  
                  if (mode_str == "spectrum" || mode_str == "频谱") {
                      // 设置为频谱显示模式
-                     auto esp32_music = static_cast<MusicService*>(music);
-                     esp32_music->SetDisplayMode(MusicService::DISPLAY_MODE_SPECTRUM);
+                     auto esp32_music = static_cast<Esp32Music*>(music);
+                     esp32_music->SetDisplayMode(Esp32Music::DISPLAY_MODE_SPECTRUM);
                      return "{\"success\": true, \"message\": \"Switched to spectrum display mode.\"}";
                  } else if (mode_str == "lyrics" || mode_str == "歌词") {
                      // 设置为歌词显示模式
-                     auto esp32_music = static_cast<MusicService*>(music);
-                     esp32_music->SetDisplayMode(MusicService::DISPLAY_MODE_LYRICS);
+                     auto esp32_music = static_cast<Esp32Music*>(music);
+                     esp32_music->SetDisplayMode(Esp32Music::DISPLAY_MODE_LYRICS);
                      return "{\"success\": true, \"message\": \"Switched to lyrics display mode.\"}";
                  } else {
                      return "{\"success\": false, \"message\": \"Invalid display mode, please use 'spectrum' or 'lyrics'\"}";
@@ -179,6 +179,118 @@ void McpServer::AddCommonTools() {
                  return "{\"success\": false, \"message\": \"Failed to set display mode\"}";
              });
      }
+
+    auto radio = board.GetRadio();
+    if (radio) {
+        AddTool("self.radio.play_station",
+                "Play a radio station by name. Use this tool when user requests to play radio or listen to a specific station."
+                "VOV mộc/mốc/mốt/mậu/máu/một/mút/mót/mục means VOV1 channel.\n"
+                "Args:\n"
+                "  `station_name`: The name of the radio station to play (e.g., 'VOV1', 'BBC', 'NPR').\n"
+                "Return:\n"
+                "  Playback status information. Starts playing the radio station immediately.",
+                PropertyList({
+                    Property("station_name", kPropertyTypeString) // Station name (required)
+                }),
+                [radio](const PropertyList &properties) -> ReturnValue {
+                    auto station_name = properties["station_name"].value<std::string>();
+
+                    if (!radio->PlayStation(station_name))
+                    {
+                        return "{\"success\": false, \"message\": \"Failed to find or play radio station: " + station_name + "\"}";
+                    }
+                    return "{\"success\": true, \"message\": \"Radio station " + station_name + " started playing\"}";
+                });
+
+        AddTool("self.radio.play_url",
+                "Play a radio stream from a custom URL. Use this tool when user provides a specific radio stream URL.\n"
+                "Args:\n"
+                "  `url`: The URL of the radio stream to play (required).\n"
+                "  `name`: Custom name for the radio station (optional).\n"
+                "Return:\n"
+                "  Playback status information. Starts playing the radio stream immediately.",
+                PropertyList({
+                    Property("url", kPropertyTypeString),     // Stream URL (required)
+                    Property("name", kPropertyTypeString, "") // Station name (optional)
+                }),
+                [radio](const PropertyList &properties) -> ReturnValue
+                {
+                    auto url = properties["url"].value<std::string>();
+                    auto name = properties["name"].value<std::string>();
+
+                    if (!radio->PlayUrl(url, name))
+                    {
+                        return "{\"success\": false, \"message\": \"Failed to play radio stream from URL: " + url + "\"}";
+                    }
+                    return "{\"success\": true, \"message\": \"Radio stream started playing\"}";
+                });
+
+        AddTool("self.radio.stop",
+                "Stop the currently playing radio stream.\n"
+                "Return:\n"
+                "  Stop status information.",
+                PropertyList(),
+                [radio](const PropertyList &properties) -> ReturnValue {
+                    if (!radio->Stop())
+                    {
+                        return "{\"success\": false, \"message\": \"Failed to stop radio\"}";
+                    }
+                    return "{\"success\": true, \"message\": \"Radio stopped\"}";
+                });
+
+        AddTool("self.radio.get_stations",
+                "Get the list of available radio stations.\n"
+                "Return:\n"
+                "  JSON array of available radio stations.",
+                PropertyList(),
+                [radio](const PropertyList &properties) -> ReturnValue {
+                    auto stations = radio->GetStationList();
+                    std::string result = "{\"success\": true, \"stations\": [";
+                    for (size_t i = 0; i < stations.size(); ++i) {
+                        result += "\"" + stations[i] + "\"";
+                        if (i < stations.size() - 1) {
+                            result += ", ";
+                        }
+                    }
+                    result += "]}";
+                    return result;
+                });
+
+        AddTool("self.radio.set_display_mode",
+                "Set the display mode for radio playback. You can choose to display spectrum or station info.\n"
+                "Args:\n"
+                "  `mode`: Display mode, options are 'spectrum' or 'info'.\n"
+                "Return:\n"
+                "  Setting result information.",
+                PropertyList({
+                    Property("mode", kPropertyTypeString) // Display mode: "spectrum" or "info"
+                }),
+                [radio](const PropertyList &properties) -> ReturnValue {
+                    auto mode_str = properties["mode"].value<std::string>();
+
+                    // Convert to lowercase for comparison
+                    std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
+
+                    if (mode_str == "spectrum")
+                    {
+                        // Set to spectrum display mode
+                        auto esp32_radio = static_cast<Esp32Radio *>(radio);
+                        esp32_radio->SetDisplayMode(Esp32Radio::DISPLAY_MODE_SPECTRUM);
+                        return "{\"success\": true, \"message\": \"Switched to spectrum display mode\"}";
+                    }
+                    else if (mode_str == "info")
+                    {
+                        // Set to info display mode
+                        auto esp32_radio = static_cast<Esp32Radio *>(radio);
+                        esp32_radio->SetDisplayMode(Esp32Radio::DISPLAY_MODE_INFO);
+                        return "{\"success\": true, \"message\": \"Switched to info display mode\"}";
+                    }
+                    else
+                    {
+                        return "{\"success\": false, \"message\": \"Invalid display mode, please use 'spectrum' or 'info'\"}";
+                    }
+                });
+    }
     // Restore the original tools list to the end of the tools list
     tools_.insert(tools_.end(), original_tools.begin(), original_tools.end());
 }
